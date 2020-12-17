@@ -148,10 +148,6 @@ create or replace package pkg_generate_data is
         rows_amount number
     );
 
-    procedure add_details_storage (
-        rows_amount number
-    );
-
     procedure add_goods_storage (
         rows_amount number
     );
@@ -749,6 +745,7 @@ create or replace package body pkg_generate_data is
             );
     end;
 
+    -- trigger TR_DETAILS_STORAGE after this
     procedure add_details_supply_items (
         rows_amount number
     ) is
@@ -823,6 +820,7 @@ create or replace package body pkg_generate_data is
             );
     end;
 
+    -- trigger TR_SELL_GOODS after this
     procedure add_goods_supply_items (
         rows_amount number
     ) is
@@ -857,34 +855,6 @@ create or replace package body pkg_generate_data is
                 arr_item_classes_id(i),
                 arr_items_input_amount(i),
                 arr_items_input_prices(i)
-            );
-    end;
-
-    procedure add_details_storage (
-        rows_amount number
-    ) is
-        arr_details_id     number_table;
-        arr_start_dates    date_table;
-        arr_details_amount number_table;
-
-        arr_all_details_id number_table := get_details_id();
-    begin
-
-        for i in 1..rows_amount loop
-            arr_details_id(i)     := get_random_el(arr => arr_all_details_id);
-            arr_start_dates(i)    := trunc(get_random_date());
-            arr_details_amount(i) := round(DBMS_RANDOM.VALUE(low => 1, high => 30));
-            end loop;
-
-        forall i in 1..rows_amount
-            insert into DETAILS_STORAGE(
-                DETAIL_ID,
-                START_DATE,
-                DETAILS_AMOUNT
-            ) values (
-                arr_details_id(i),
-                arr_start_dates(i),
-                arr_details_amount(i)
             );
     end;
 
@@ -967,7 +937,7 @@ create or replace package body pkg_generate_data is
             arr_cashiers_id(i)  := get_random_el(arr => arr_all_cashiers_id);
             arr_sell_dates(i)   := trunc(get_random_date());
             arr_shops_id(i)     := get_random_el(arr => arr_all_shops_id);
-            arr_total_prices(i) := DBMS_RANDOM.VALUE(low => 1, high => 100);
+            arr_total_prices(i) := 0;          -- update by trigger
             end loop;
 
         forall i in 1..rows_amount

@@ -504,3 +504,151 @@ ALTER TABLE DETAILS_USED
 
 
 -- Create Indexes
+
+-- Create Triggers
+
+-- update total price of sell after adding the services which were provided
+create or replace trigger TR_TOTAL_PRICE_SERVICES_UPDATE
+    after insert or update or delete on SERVICES_SELLS
+    for each row
+
+    -- null can be on insert or delete
+    when ( nvl(NEW.SERVICE_PRICE, 0) != nvl(OLD.SERVICE_PRICE, 0) )
+
+    declare
+        v_difference number := nvl(:NEW.SERVICE_PRICE, 0) - nvl(:OLD.SERVICE_PRICE, 0);
+    begin
+        update SELLS
+        set
+            SELLS.TOTAL_PRICE = SELLS.TOTAL_PRICE + v_difference
+        where
+            -- if NEW.SELL_ID is null then it was a delete
+            SELLS.SELL_ID = nvl(:NEW.SELL_ID, :OLD.SELL_ID);
+    end;
+
+
+-- update total price of sell after adding the items which were sold
+create or replace trigger TR_TOTAL_PRICE_GOODS_UPDATE
+    after insert or update or delete on GOODS_SELLS_ITEMS
+    for each row
+
+    -- if price or amount was changed
+    -- null can be after insert/delete
+    when ( nvl(NEW.ITEM_PRICE, 0) != nvl(OLD.ITEM_PRICE, 0)
+           or nvl(NEW.ITEMS_AMOUNT, 0) != nvl(OLD.ITEMS_AMOUNT, 0))
+
+    declare
+        v_nvl_new_price  number := nvl(:NEW.ITEMS_AMOUNT, 0);
+        v_nvl_new_amount number := nvl(:NEW.ITEM_PRICE, 0);
+
+        v_nvl_old_price  number := nvl(:OLD.ITEMS_AMOUNT, 0);
+        v_nvl_old_amount number := nvl(:OLD.ITEM_PRICE, 0);
+
+        v_difference number := v_nvl_new_amount * v_nvl_new_price
+                                   - v_nvl_old_amount * v_nvl_old_price;
+    begin
+        update SELLS
+        set
+            SELLS.TOTAL_PRICE = SELLS.TOTAL_PRICE + v_difference
+        where
+            -- if NEW.SELL_ID is null then it was a delete
+            SELLS.SELL_ID = nvl(:NEW.SELL_ID, :OLD.SELL_ID);
+    end;
+
+
+-- update storage of goods after each supply
+create or replace trigger TR_GOODS_STORAGE
+    after insert on GOODS_SUPPLY_ITEMS
+    for each row
+
+    declare
+
+    begin
+        insert into GOODS_STORAGE (
+            GOODS_STORAGE.ITEM_ID,
+            GOODS_STORAGE.START_DATE,
+            GOODS_STORAGE.ITEMS_AMOUNT,
+            GOODS_STORAGE.PRICE
+        ) values (
+            :NEW.ITEM_ID,
+            sysdate,
+            :NEW.ITEMS_INPUT_AMOUNT,
+            :NEW.ITEM_INPUT_PRICE
+        );
+
+    end;
+
+-- update storage of details after each supply
+create or replace trigger TR_DETAILS_STORAGE
+    after insert on DETAILS_SUPPLY_ITEMS
+    for each row
+
+    declare
+    begin
+        insert into DETAILS_STORAGE (
+            DETAIL_ID,
+            START_DATE,
+            DETAILS_AMOUNT
+        ) values (
+            :NEW.DETAIL_ID,
+            sysdate,
+            :NEW.DETAIL_INPUT_AMOUNT
+        );
+    end;
+
+
+-- check whether there are enough items for sale before the
+-- confirmation of sell and update amount of items at the storage after
+create or replace trigger TR_SELL_GOODS
+    before insert on GOODS_SELLS_ITEMS
+    for each row
+
+    declare
+        type number_table is table of number         index by binary_integer;
+
+        v_price number := :NEW.ITEM_PRICE;
+        v_item_id number := :NEW.ITEM_ID;
+        v_required_amount number := :NEW.ITEMS_AMOUNT;
+
+        arr_tmp number_table;
+
+        v_available_amount number;
+    begin
+
+
+        select gs.ITEMS_AMOUNT
+            bulk collect
+        into arr_tmp
+        from GOODS_STORAGE gs
+        where gs.ITEM_ID = v_item_id
+          and gs.START_DATE = (
+            select max(gs.START_DATE)
+            from GOODS_STORAGE gs
+            where gs.ITEM_ID = v_item_id
+        );
+
+        if (arr_tmp.COUNT > 0) then
+            v_available_amount := arr_tmp(1);
+        else
+            v_available_amount := 0;
+        end if;
+
+        if (v_required_amount > v_available_amount) then
+            raise_application_error(-20101,'There is no ' || v_required_amount
+                        || ' of product_' || v_item_id || ' on the storage.'
+                        || 'There are only ' || v_available_amount || ' such items.');
+        else
+            insert into GOODS_STORAGE (
+                ITEM_ID,
+                START_DATE,
+                ITEMS_AMOUNT,
+                PRICE
+            ) values (
+                v_item_id,
+                sysdate,
+                v_available_amount - v_required_amount,
+                v_price
+            );
+        end if;
+    end;
+
